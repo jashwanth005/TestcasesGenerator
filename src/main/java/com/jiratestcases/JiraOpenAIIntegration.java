@@ -25,16 +25,16 @@ public class JiraOpenAIIntegration {
     private static final String OPENAI_API_URL = dotenv.get("OPENAI_API_URL");
 
     public static void main(String[] args) throws Exception {
-        // Step 1: Fetch Jira Ticket
-        String ticketId = dotenv.get("ticketId");  // Replace with actual ticket ID
+        // Fetch Jira Ticket
+        String ticketId = dotenv.get("ticketId"); 
         Issue issue = fetchJiraTicket(ticketId);
         String title = issue.getSummary();
         String description = issue.getDescription();
 
-        // Step 2: Generate Test Cases using OpenAI
+        // Generate Test Cases using OpenAI
         String testCases = generateTestCasesWithOpenAI(title, description);
 
-        // Step 3: Save the test cases to an Excel file
+        //  Save the test cases to an Excel file
         saveTestCasesToExcel(testCases, "test_cases.xlsx");
     }
 
@@ -80,7 +80,7 @@ public class JiraOpenAIIntegration {
         // Execute request and get response
         Response response = client.newCall(request).execute();
         String responseBody = response.body().string();
-
+System.out.println(responseBody);
         // Parse the response
         JSONObject jsonResponse = new JSONObject(responseBody);
         return jsonResponse.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content");
@@ -90,52 +90,67 @@ public class JiraOpenAIIntegration {
     private static void saveTestCasesToExcel(String testCaseString, String filePath) throws Exception {
         Workbook workbook = new XSSFWorkbook();
         Sheet sheet = workbook.createSheet("Test Cases");
-
+    
         // Split the test case string into individual test cases
         String[] testCases = testCaseString.split("- Test Case ID: ");
         int rowNum = 0;
-
+    
         // Create header row
         Row headerRow = sheet.createRow(rowNum++);
         headerRow.createCell(0).setCellValue("Test Case ID");
         headerRow.createCell(1).setCellValue("Scenario");
         headerRow.createCell(2).setCellValue("Steps");
         headerRow.createCell(3).setCellValue("Expected Result");
-
+    
         // Process each test case
         for (String testCase : testCases) {
             if (testCase.trim().isEmpty()) continue;
-
             Row row = sheet.createRow(rowNum++);
             String[] lines = testCase.split("\n");
             String caseId = lines[0].trim();
             String scenario = "";
-            String steps = "";
+            StringBuilder steps = new StringBuilder();
             String expectedResult = "";
-
+            boolean isStepsSection = false;
+            boolean isExpectedResultSection = false;
+    
             for (String line : lines) {
+                line = line.trim(); // Ensure no leading/trailing spaces
+    
                 if (line.contains("Scenario:")) {
                     scenario = line.split(":")[1].trim();
-                } else if (line.startsWith("    1.")) {
-                    steps = line.trim();
-                } else if (line.startsWith("Expected Result:")) {
+                } else if (line.contains("Expected Result:")) {
                     expectedResult = line.split(":")[1].trim();
+                    isExpectedResultSection = true;
+                  
+                } else if (line.matches("^\\d+\\..*")) {
+                    isStepsSection = true;
+                    steps.append(line).append("\n");
+                    isExpectedResultSection = false; // Steps section means we're out of the expected result section
+                } else if (isStepsSection && !isExpectedResultSection) {
+                    steps.append(line).append("\n");  // Add continuation of steps if any
+                } else if (isExpectedResultSection) {
+                    // Continue adding lines to expectedResult if multi-line expected result
+                    expectedResult += " " + line;
+                    // Debug log
+                    System.out.println("Appending to Expected Result: " + expectedResult);
                 }
             }
 
             // Add data to Excel row
             row.createCell(0).setCellValue(caseId);
             row.createCell(1).setCellValue(scenario);
-            row.createCell(2).setCellValue(steps);
-            row.createCell(3).setCellValue(expectedResult);
+            row.createCell(2).setCellValue(steps.toString().trim());
+            row.createCell(3).setCellValue(expectedResult.trim());  // Ensure any extra spaces are trimmed
         }
-
+    
         // Save Excel file
         FileOutputStream fileOut = new FileOutputStream(filePath);
         workbook.write(fileOut);
         fileOut.close();
         workbook.close();
-
+    
         System.out.println("Test cases saved to " + filePath);
     }
+    
 }
